@@ -25,12 +25,14 @@ Using the reduced dimensions allows the visualization of the data to obtain furt
 #### Screenshots
 
 <p align="center">
-  <img alt="Ratings Distribution" src="images/m1.PNG" width="45%">
+  <img alt="Spectral Distribution" src="images/milk1.PNG" width="45%">
 &nbsp; &nbsp; &nbsp; &nbsp;
-  <img alt="Number of Ratings Pie Chart" src="images/m2.PNG" width="45%">
+  <img alt= "Hierarchical Clustering" src="images/milk3.PNG" width="45%">
 </p>
 
 <p align="center">
 &nbsp; &nbsp; &nbsp; &nbsp;
-  <img alt="ML Model Information" src="images/m3.PNG" height = "400">
+  <img alt="Alpha Casein Distribution" src="images/milk2.PNG" width="45%">
+ &nbsp; &nbsp; &nbsp; &nbsp;
+  <img alt="Principal Component Clustering" src="images/milk4.PNG" width="45%">
  </p>
