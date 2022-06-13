@@ -4,7 +4,7 @@
 R 
 [<img alt="R Logo" width="17px" src="images/Rlogo.png" />](https://www.r-project.org/)
 
-[Dataset](https://github.com/Gautua/Spectral-Analysis/blob/main/Milk_MIR_Traits_data.csv) - Milk MIR Traits Data 
+[Dataset](https://github.com/Gautua/Spectral-Analysis/blob/main/Milk_MIR_Traits_data.csv) - Milk MIR Traits Data (Keep in same directory as .rmd file)
 
 #### Description:
 
