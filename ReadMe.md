@@ -32,7 +32,7 @@ Using the reduced dimensions allows the visualization of the data to obtain furt
 
 <p align="center">
 &nbsp; &nbsp; &nbsp; &nbsp;
-  <img alt="Alpha Casein Distribution" src="images/milk2.PNG" width="45%">
+  <img alt="Alpha Casein Distribution" src="images/milk2-2.png.PNG" width="45%">
  &nbsp; &nbsp; &nbsp; &nbsp;
   <img alt="Principal Component Clustering" src="images/milk4.PNG" width="45%">
  </p>
