@@ -1,505 +1,361 @@
 ---
-title: "Analysis of Milk Spectral Data"
-author: "Gautam Malhotra"
-date: "15/03/2022"
+  title: "Multivariate"
+author: "Aditya Shetty"
+date: "3/19/2022"
 output:
-  html_document:
-    df_print: paged
+  word_document: default
+html_document: default
 ---
-
-```{r setup, include=FALSE}
+  
+  ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-options(warn = -1)
 ```
 
-```{r Libraries}
-require(e1071)
-require(ggplot2)
-require(dplyr)
-require(dendextend)
-require(rgl)
-require(pls)
-require(caret)
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+rm(list=ls())
+library(ggplot2)
+library(cluster)
+library(stats)
+library(dplyr)
+library(pls)
+library(e1071)
 ```
-The MIR data contains 403 recorded observations of various traits of milk samples.  
-The last 531 columns of this data contains the MIR Spectra readings on 531 unique wave-lengths  
-```{r Importing Data}
-# Importing Data set 
-MIR_Traits_Data <- read.csv("Milk_MIR_Traits_data.csv")
-# Setting seed
-set.seed(216)
-#Generating the random number corresponding to the row to be removed
-index_removed <- round(runif(1,min=1,max=nrow(MIR_Traits_Data)))
-#Removing row
-MIR_Traits_Data<-MIR_Traits_Data[-index_removed,]
-```
+
+## Introduction:
+
+The data we are going to review is a part of dairy production for different breeds of cows and their characteristics which affect the quality of milk.  
+This data which we are working on was curated for animal breeding purpose.  
+As EU government gives more and more grants to the farmers, they have legal requirements to collect the data. Using the data collected government sanctions them subsidies.  
+Due to this the amount of data collected is growing exponentially.  Ireland exports 90% of the dairy produce to 124 countries and is growing every year, due to which it has become essential and important for recording the data and analyzing.
+
+
+## Objective we will cover in this project:
+
+-> To understand the data and share our inference to it.  
+-> Create clusters using unsupervised learning methods and compare them (hierarchical and k-means).  
+-> Understanding PCA algorithm and implementing on our given data.  
+-> Predicting value of alpha casin using the MIR spectra data.  
+-> Creating a function which works similar to PLSR and predict.  
 
 ```{r}
-str(MIR_Traits_Data[,1:10])
+# Loading the data set
+milk<-read.csv("C:/Users/Aditya/Downloads/Milk_MIR_Traits_data.csv")
 ```
+
+The data we will be using has dimension 431 rows of data and 582 columns.   It's a wide data.
+  
+The first 52 columns are the data durated by humans on different aspects eg: pH of the milk, fat content in milk, protein content in milk.  
+MIR spectra are wavelengths calculated using the given data.  
+There are 1060 wavelengths of MIR spectra and these data and columns are highly correlated and has multi collinearity.  
+We have this data in columns 52 to 582.
+  
+
+  
+```{r}
+# Setting up the seed
+set.seed(2100138)
+# Generating random number between 1 to n (number of rows)
+n<-sample(1:431,1)
+# Deleting a row 
+Deleted_milk<-milk[n,]
+milk<-milk[-n,]
+nrow(milk)  # checking number of rows after deleting one row
+Deleted_milk
+```
+
+
+  
+
+  
+We can interpret from plot for alpha casein that it ranges from 5-40 and there are blank values in somwhere between 100th-200th observations.
+  
+
+```{r}
+barplot(milk$alpha_s1_casein)
+```
+  
+We can interpret from this plot that all MIR spectra data which are wavelengths ranges from 0-0.65 and they are highly collinear. 
+  
+```{r}
+MIR <- as.matrix(milk[,52:582])
+matplot(t(MIR), type='l', lty =1)
+matplot(MIR)
+```
+  
+We have 430 rows of data for different breeds.
+  Once we remove all observation with alpha casein 3 standard deviations from mean, then 99.75% data is still stored in the mean range and outliers are removed.
+  
+Once we remove the observations we can observe that there is a difference in value as values above 24 in alpha casein are removed.  
+  
+  
+```{r, warning=FALSE}
+ggplot(milk, aes(x=milk$alpha_s1_casein)) +
+  xlim(0,50) +
+  ylim(0,90) +
+  geom_histogram(color="blue", fill="white")
+std <- sd(milk$alpha_s1_casein, na.rm = TRUE)
+m <- mean(milk$alpha_s1_casein,na.rm = TRUE) 
+lower <- m-3*std
+higher <- m+3*std
+data <- subset(milk, alpha_s1_casein <= higher & alpha_s1_casein >= lower)
+#  2
+ggplot(data, aes(x=data$alpha_s1_casein)) +
+  xlim(0,50) +
+  ylim(0,90) +
+  geom_histogram(color="blue", fill="white")
+```
+
+
+
+
+  
+
+    
+Cluster Analysis is a term to describe technique used to achieve groups which are similar to each other.  
+For this we use dissimilarity matrix which calculates the dissimilarity between each groups.  
+  
+Firstly, there are 3 major methods to calculate dissimilarity matrix:Euclidean method, Manhattan Method and Minkowski method. We  will go ahead with EUclidean method.
+  
+Then we have to select linkage between the groups:
+  
+There are 3 types of linkage, Single, Complete and Average linkage.
+  
+We cannot select linkage by number of clusters formed or the way clusters are formed. They can be selected by calculating coefficient of colligation which is a lengthy method. Both Average and complete are considered to be good approach, hence we will go with complete linkage for our analysis as there is very less limitations to it.
+In single linkage there is a exception of chaining effect.
+
+  
 
 
 ```{r}
-# Selecting Data pertaining to the Spectra
-Spectra_Data <- MIR_Traits_Data[,(ncol(MIR_Traits_Data)-530):ncol(MIR_Traits_Data)]
-# Checking for Missing values
-paste("Number of Missing values:",sum(is.na(Spectra_Data)))
-```
-#### Visualizing the Spectra
-
-```{r Visualization}
-# Randomly Choosing an observation 
-random_observation <-  sample(c(1:nrow(Spectra_Data)),1)
-# Obtaining column names
-col_names <- colnames(Spectra_Data)
-# Changing column names into list of corresponding wavelengths
-col_names <- as.numeric(gsub("X","",col_names))
-p1<-ggplot()+geom_point(aes(x = col_names,y = unlist(Spectra_Data[random_observation,])))+xlab("Wavelength  cm−1")+ylab("Absorbance Values")+ggtitle(paste("MIR_Spectra of obervation no:",random_observation))
-# Generating more tick for a more accurate plot
-p1 + scale_x_continuous(n.breaks = 20) +scale_y_continuous(n.breaks = 20)
+milk_alpha<-data[,52:582]
+############################
+dist.eucl = dist(milk_alpha, method="euclidean")
+E_complete = hclust(dist.eucl, method="complete")
+plot(E_complete)
 ```
   
-This graph represents the MIR_spectra for the `r random_observation` observation in our data set.  
-The graph plots the absorbance values of this sample at each of the 531 recorded wavelengths.  
-Each wavelength has the potential to correspond to the different traits of the sample such as the Heat stability,milk fat content, protein content ,processability etc, the absorbance values at these wavelengths indicate the strength of these traits.  
-
-```{r}
-matplot(t(Spectra_Data),xlab = "Wavelength Index",ylab = "Absorbance",main="Trend of Spectra")
-```
+Above is the clusters we get based on euclidean complete Hierarchical clustering. 
   
-We can see that the wavelengths are overlapping to a great extent , this indicates that there is high correlation among those wave-lengths.  
-We can also see that the maximum absorbance in the spectra is around 0.64 and the minimum absorbance is approximately -0.1  
-
-```{r Alpha s1 Casine}
-# Subsetting Required Data
-A_S1_Casine<-MIR_Traits_Data$alpha_s1_casein
-p2<-ggplot()+geom_boxplot(aes(x=A_S1_Casine),color="#69b3a7",fill="#69b3a2",alpha=0.6)+xlab(" αs1-casein values")+ ggtitle("αs1-casein Boxplot [All observations]")
-p2+ scale_x_continuous(n.breaks = 10) +scale_y_continuous(n.breaks = 10)
-```
+K means method:  
   
-$\alpha s_1Casine$ is a protein trait present in milk.  
-This boxplot indicates that  50% of $\alpha s_1Casine$ lie between approximately 12 and 15.5  
-We are presented with few outliers in our observations.  
-
-```{r}
-ggplot()+geom_histogram(aes(x=A_S1_Casine),color="#69b3a7",fill="#69b3a2",alpha=0.6)+xlab(" αs1-casein values")+ ggtitle("αs1-casein Boxplot [All observations]")+scale_x_continuous(n.breaks = 10) +scale_y_continuous(n.breaks = 10)
-```
-  
-Most common alpha s1 casein values seem to be approximately between 12.5 and 14
-  
-To be noted: We have 124 observations which do not have a recorded value for this variable
-  
-```{r Removing outliers}
-# Subsetting Data to only contain observations that have:
-# A recorded value for alpha_s1_casein
-# The value lies between 3 standard deviations of the mean 
-Data_sub<-subset(MIR_Traits_Data,(alpha_s1_casein>mean(A_S1_Casine,na.rm=T)-3*sd(A_S1_Casine,na.rm = T)&alpha_s1_casein<mean(A_S1_Casine,na.rm=T)+3*sd(A_S1_Casine,na.rm = T)))
-```
-We end up removing `r length(MIR_Traits_Data)-length(Data_sub)` observations from our working data-set  
-
-### Clustering
-
-I choose to perform k-means clustering before hierarchical clustering since using k-means we can use WSS as an indication of how many clusters would be optimum for our data.  
-
-```{r K-means Clustering}
-Spectra_Data_subset <- Data_sub[,(ncol(Data_sub)-530):ncol(Data_sub)]
+```{r , echo=FALSE}
+# Initializing Within group sum of squares
 WGSS = rep(0,10)
-n = nrow(Spectra_Data_subset)
-WGSS[1] = (n-1) * sum(apply(Spectra_Data_subset, 2, var))
+n = nrow(data)
+WGSS[1] = (n-1) * sum(apply(milk_alpha, 2, var))
 for(k in 2:10)
 {
-WGSS[k] = sum(kmeans(Spectra_Data_subset, centers = k,nstart = 50)$withinss)
+  WGSS[k] = sum(kmeans(milk_alpha, centers = k)$withinss)
 }
-plot(1:10, WGSS, type="b", xlab="No.of Clusters", ylab="Within group sum of squares",main = "WSS Elbow plot")+abline(v=4,lty=2,col="skyblue")
+plot(1:10, WGSS, type="b", xlab="k", ylab="Within group sum of squares")
 ```
   
-The plot above shows the WSS for corresponding number of clusters, choosing the optimum number of clusters is a subjective choice we need to make now before moving forward with the clustering algorithms .  
-
-I chose that k = 4 as a good choice . This is because the curve (WSS vs number of clusters) starts to flattens out after 4,implying that increasing the clusters anymore would only result in over-fitting of the data.  
-
-```{r k-means cluster}
-# using nstart = 50 to avoid local optimum 
-Spectra_k = kmeans(Spectra_Data_subset, center=4,nstart = 50)
-Data_sub_kmeans<- mutate(Data_sub,cluster =Spectra_k$cluster)
-table(Spectra_k$cluster)
+Here, Using elbow method we can conclude that we will have 6 or 7 optimal clusters. But since, it decreases very less after 6 to 7. We will conclude that k=6.  
+  
+```{r}
+k=4
+cl = kmeans(milk_alpha, center=k)
+plot(scale(milk_alpha), col = cl$cluster)
+points(cl$centers, col=1:k, pch=8, cex=2)
 ```
-
-Our k-means clustering suggests that our data is divided into 4 clusters  
-Cluster 1 : 8 observations  
-Cluster 2 : 81 observations  
-Cluster 3 : 130 observations  
-Cluster 4 : 84 observations  
-
-```{r Plotting Clusters}
-ggplot(data = Data_sub_kmeans) + geom_point(aes(x=c(1:nrow(Data_sub_kmeans)),y=cluster,color=cluster))+xlab("Observation Index")+ylab("Cluster Assigned")+ggtitle("Cluster distribution")
+```{r}
+hcl = cutree(E_complete, k=k)
+pcl = kmeans(milk_alpha, centers=k)
+tab = table(hcl, pcl$cluster)
+tab
+classAgreement(tab)
 ```
   
-Clusters 3 contain majority of the observations.  
-Clusters 2 and 4 are of approximately equal sizes  
-The clustering does not seem to be dependent on in what order these observations were made in the data set
+As we can see using Rand index we get above 74% match, which is good when we compare hierarchical cluster and K means cluster.
+
+
   
-If we explore the data based on clusters , we find that the lactose content and Casein Content of observations in cluster 1 is significantly less than of the other clusters.  
-```{r Lactose_Content K means}
-temp <- data.frame(c1<-c(head(Data_sub_kmeans[Data_sub_kmeans$cluster==1,]$Lactose_content)),c2<-head(Data_sub_kmeans[Data_sub_kmeans$cluster==2,]$Lactose_content),c3<-head(Data_sub_kmeans[Data_sub_kmeans$cluster==3,]$Lactose_content),c4<-head(Data_sub_kmeans[Data_sub_kmeans$cluster==4,]$Lactose_content))
-names(temp)<-c("c1","c2","c3","c4")
-print("Lactose Content")
-print(temp)
+### (PCA)
+
+```{r}
+pca=prcomp(scale(milk_alpha))
+plot(pca, main="Cumulative proportion of the variance" ,xlab="PCA1 -PCA10", xaxt='n')
+axis(1, at = seq(1,11, by = 1.1),labels = 1:10)
+# summary(pca)
 ```
+  
+As we notice in proportion of Variance the first 4 columns contain (63.70% + 18.76% + 12.69% + 4.078%) 99.228% of the variance.
+  
+Also with the screeplot we can confirm that we can reduce the dimension of columns to 4 for Principal Component scores. i.e We can use the first 4 columns to retain 99.228% information and reduce the redundancy in the given data.
+  
+
+
+##  5
+  
+
+```{r}
+#Getting the covariance matrix sigma from data
+S=cov(milk_alpha)
+#Getting eigen values from covariance matrix E
+eigen=eigen(S)
+#Getting eigen vectors
+eigenvectors=eigen$vectors
+#Getting PCS value by data*eigenvectors 
+scores<- (as.matrix(scale(milk_alpha, center = TRUE))) %*%  (eigenvectors)
+#Using predict function just to compare with our data
+pred<-predict(pca)
+par(mfrow=c(1,2))
+barplot(scores, main="PCS scores using eigenvectors from data")
+barplot(pred, main="PCS scores using pred function")
+par(mfrow=c(2,1))
+plot(scores[,1], scores[,2], xlab="PC1", ylab="PC2", main = "USING eigenvectors from data to get PCS value")
+plot(pred[,1], pred[,2], xlab="PC1", ylab="PC2", main = "USING In built pred function for PCS")
+```
+
+  
+As we can see what we achieved is close to what we achieve from pred function in PCA.
+pca$rotation basically returns eigen vectors, if we notice there is a change in sign due to which we receive mirror image of our data which we get using predict, but the essence and variation remains the same. This is because eigenvectors in different compilers gives different signs. Hence, the mirror image (referring help page from R: {r} [https://stat.ethz.ch/pipermail/r-help/2003-July/036504.html] (https://stat.ethz.ch/pipermail/r-help/2003-July/036504.html) ). 
+
+  
+
+We will get exact same figures if we use pca$rotation which is also the eigenvectors of our data.
+  
+```{r}
+scores<- (as.matrix(scale(milk_alpha, center = TRUE))) %*%  (pca$rotation)
+par(mfrow=c(1,2))
+barplot(scores, main="PCS scores using rotation from prcomp")
+barplot(pred, main="PCS scores using pred function")
+par(mfrow=c(2,1))
+plot(scores[,1], scores[,2], xlab="PC1", ylab="PC2", main = "USING rotation from prcomp to get PCS value")
+plot(pred[,1], pred[,2], xlab="PC1", ylab="PC2", main = "USING In built pred function for PCS")
+```
+
+  
+Principal component Regression:
+  
+Purpose: The main purpose of it is dimension reduction, Retain majority of the variance and importance while doing so. It is unsupervised way because we are only using the explanatory variable and not target variables for prediction while training/fitting model. PCR is used in order to prevent errors caused by dependencies between assumed independent variables in regression.
+  
+Description on how method works:   
+-> First we need to scale and center the data .i.e normalize the data.  
+-> We will divide the dataframe into 2 parts taking one third as test data and two third as train data.  
+-> Run PCA from prcomp.
+-> Select number of principal components which has the majority using proportion of variance.  
+-> Calculate the Principal Component Scores using the principal components/columns.
+-> Run PCR function to get target variable response and use K-fold method for cross validation of response.
+Choices we need to make: We need scale and center the data. Selecting number of principal components. If we need to k-fold method.
+  
+Advantages/Disadvantages: Multi-Collinearity disappears since we reduce the dimension and only take ones with majority variance. Numerical accuracy is improved due to the use of Principal Components. It has less accuracy than PLSR since the data is modelled independently without taking target variable in consideration.
+  
+Partial Least Square Regression:
+  
+Purpose:The main purpose of it is dimension reduction, Retain majority of the variance and importance while doing so. It doesn't use Principal component but uses latent variables. PLSR is uses target variable along with explanatory values in order to determine the coefficients and intercept value, hence we get better accuracy than PCR.
+
+Description on how method works:   
+  -> We will divide the dataframe into 2 parts taking one third as test data and two third as train data.  
+-> Run PLSR function from pls package with scaling and validation as TRUE.
+-> Select number of latent variables using RMSEP plots where till CV reduces or majoirt variance is covered.  
+-> Calculate the Principal Component Scores using the principal components/columns.
+-> Run PCR function to get target variable response and use K-fold method for cross validation of response.
+Choices we need to make: We need scale and center the data. Selecting number of latent variables based on proportion of variance. If we need k-fold method to cross validate.
+
+Advantages/Disadvantages: Multi-Collinearity disappears since we reduce the dimension and only take ones with majority variance. Better accuracy than PCR because it uses the target variable for training. Disadvantage of PLSR is that it is more prone to overfitting. 
+
+
+
 
 
 ```{r}
-boxplot(temp,main="Lactose Content [k-means]",ylab="Lactose Content",xlab="Cluster")
+alpha_s1_casein = data[,9:9]
+n=nrow(milk_alpha)
+dataPCR <- cbind(alpha_s1_casein,data[,52:582]) 
+dataPCR_train <- dataPCR[1:((2*n/3)-1),]
+dataPCR_test <- dataPCR[(2*n/3):n,]
+#Model fitting: Training model
+plsrs <- plsr(alpha_s1_casein ~.,ncomp=10, data = dataPCR_train , scale = TRUE , validation = "CV")
+plot(RMSEP(plsrs), legendpos = "topright")
 ```
 
-```{r Casein_Content k_means}
-temp <- data.frame(c1<-c(head(Data_sub_kmeans[Data_sub_kmeans$cluster==1,]$Casein_content)),c2<-head(Data_sub_kmeans[Data_sub_kmeans$cluster==2,]$Casein_content),c3<-head(Data_sub_kmeans[Data_sub_kmeans$cluster==3,]$Casein_content),c4<-head(Data_sub_kmeans[Data_sub_kmeans$cluster==4,]$Casein_content))
-names(temp)<-c("c1","c2","c3","c4")
-print("Casein Content")
-print(temp)
-```
+We will take number of components as 6, because CV-RMSEP reduces till 6 and then starts increasing after that, hence number of latent component selected is 6.
 
 ```{r}
-boxplot(temp,main="Casein Content[k-means]",ylab="Casein Content",xlab="Cluster")
+#Component number 
+plsrs.RMSEP = RMSEP(plsrs, estimate="CV")
+min_comp = which.min(plsrs.RMSEP$val)-1
+#We have it
+min_comp
+plot(plsrs, ncomp=min_comp, asp=1, line=TRUE)
+pls.pred = predict(plsrs, dataPCR_test, ncomp=min_comp)
+#Mean Squared error for our prediction
+sqrt(mean((pls.pred - dataPCR_test$alpha_s1_casein)^2))
 ```
 
-```{r Hierarichal Clustering}
-# We use the euclidean distance for the dissimilarity matrix construction
-# Since we removed the outliers from the data, it's disadvantage of being sensitive to outliers is removed making it an appropriate measure. 
-dist_Spec = dist(Spectra_Data_subset,method = "euclidean")
-# Using the complete linkage to create the hierarchical classification
 
-# Average and complete linkage are generally preferred over single linkage, as they tend to yield
-# more balanced dendrograms.
-H_Classified <- hclust(dist_Spec, method = "complete")
-# Plotting the cluster Dendogram
-#plot(H_Classified,xlab = "Average Linkage",cex=0.3)
-```
-
-  
-Now that we have the Hierarchical Classification , we need to determine how many clusters (classes) are we testing for. In this assignment I have chosen to classify into 4 different clusters  
-```{r}
-H_4_Classified<-cutree(H_Classified,k=4)
-Data_sub_Hier<- mutate(Data_sub,cluster = H_4_Classified)
-paste("We classified the observations in the following way:")
-
-
-table(H_4_Classified)
-```
-
-```{r}
-avg_dend_obj <- as.dendrogram(H_Classified)
-avg_dend_obj<-color_branches(avg_dend_obj,k=4)
-avg_col_dend <- color_branches(avg_dend_obj, h = 1.1)
-plot(avg_col_dend,main ="Visual Representation of the Clusters")
-legend("topright", legend = c(1,2,3,4),fill = c("#AAA3C0","#BCE5E4","#9D9F72","#95636F"))
-```
-  
-Exploring whether there is any emerging structure in the classification
-  
-If we explore the data based on clusters , we find that the lactose content of observations in cluster 3 is significantly less than of the other clusters.
-  
-This is just an observation and not implying that the lactose content of the sample is the sole factor dictating the clustering .
-  
-```{r Lactose_Content}
-temp <- data.frame(c1<-c(head(Data_sub_Hier[Data_sub_Hier$cluster==1,]$Lactose_content)),c2<-head(Data_sub_Hier[Data_sub_Hier$cluster==2,]$Lactose_content),c3<-head(Data_sub_Hier[Data_sub_Hier$cluster==3,]$Lactose_content),c4<-head(Data_sub_Hier[Data_sub_Hier$cluster==4,]$Lactose_content))
-names(temp)<-c("c1","c2","c3","c4")
-print("Lactose Content")
-print(temp)
-```
-
-```{r}
-boxplot(temp,main="Lactose Content")
-```
-  
-The same trend is found for Casein Content. It is an interesting observation since casein and lactose are not directly related with casein being a protein and lactose being a sugar.
-  
-```{r Casein_Content}
-temp <- data.frame(c1<-c(head(Data_sub_Hier[Data_sub_Hier$cluster==1,]$Casein_content)),c2<-head(Data_sub_Hier[Data_sub_Hier$cluster==2,]$Casein_content),c3<-head(Data_sub_Hier[Data_sub_Hier$cluster==3,]$Casein_content),c4<-head(Data_sub_Hier[Data_sub_Hier$cluster==4,]$Casein_content))
-names(temp)<-c("c1","c2","c3","c4")
-print("Casein Content")
-print(temp)
-```
-```{r}
-boxplot(temp,main="Caesin Content")
-```
-
-```{r}
-par(mfrow=c(2,2))
-boxplot(Data_sub_Hier[Data_sub_Hier$cluster==1,3:7])
-title(main = "Cluster 1")
-boxplot(Data_sub_Hier[Data_sub_Hier$cluster==2,3:7])
-title(main = "Cluster 2")
-boxplot(Data_sub_Hier[Data_sub_Hier$cluster==3,3:7])
-title(main = "Cluster 3")
-boxplot(Data_sub_Hier[Data_sub_Hier$cluster==4,3:7])
-title(main = "Cluster 4")
-```
-  
-From the Box plots above we also notice that different clusters have the DaysInMilk as a distinguishing factor.
-  
-For cluster 1: The DaysInMilk majority of its values lying between the 1st and 2nd quartile with 50% of values between the range of 44 and 194
-  
-For cluster 2: The DaysInMilk is mostly similarly distributed as cluster one but more values lie below the median in this cluster
-  
-For cluster 3: The DaysInMilk is seemingly evenly distributed with a very compact Inter Quartile Range lying approximately between 29 and 60 
-  
-For cluster 4: The DaysInMilk has a very large Inter Quartile Range approximately from 12 to 230
-  
-```{r ARI}
-classAgreement(table( H_4_Classified,Spectra_k$cluster))$rand
-```
-  
-This measure tells us how agreeable or similar the two classifications are.
-  
-Here we get that the two are approximately 69% alike
-   
-**From both clustering algorithms applied we notice that samples which contain relatively low casein and lactose contents are being clustered together.**
-  
-#### PCA
-
-First we must make the decision of whether we need to standardize the data or not.  
-If the variance related to the variables are different then we shall standardize the data. Variables with larger variances will end up having more effect on the PCA.  
-
-Upon finding the variance we see there is a difference in the variance of the variables  
-
-```{r}
-sample(apply(Spectra_Data_subset,2,var),10)
-```
-
-Although the variation values are extremely small in all variables, it is to be noted that there is a difference of 10 to 100 times . I consider this sufficient to standardize the data.  
-
-```{r Standardizing data}
-# using the scale() function to scale our data
-Spectra_Data_subset_std <- 
-  scale(Spectra_Data_subset,center = T,scale = T)
-```
-
-```{r PCA}
-Spectra_PCA <- prcomp(Spectra_Data_subset_std,scale. = T,center = T)
-PCA_sum <- summary(Spectra_PCA)
-# Displaying the first 10 Principle components
-PCA_10 <-as.data.frame(t(PCA_sum$importance[,1:10]))
-PCA_10
-```
-
-```{r Cumilative Poroportion Plot}
-
-ggplot(data = PCA_10,aes(x=1:10,y= `Cumulative Proportion`,label = round(`Cumulative Proportion`,3)))+
-  geom_point()+
-  geom_line()+
-  geom_text(hjust =0.5,vjust=1.4,size=3)+
-  scale_x_continuous(n.breaks =10)+
-  xlab("Principal Component")+
-  ylab("Cumilative Variance Proportion")+
-  ggtitle("Cumulative proportion of Variance explained by the first 10 Principal Components")+
-  geom_vline(xintercept = 4,linetype="dotted")
-```
-
-I use the following method to choose the number of Principal Components required to represent the data:  
-
-#### Scree Plot
-A scree plot visualizes the proportion of variance explained by the principal component  
-We use this plot to find the point at which the proportion of variance for each subsequent point is very small or practically none.  
-
-We only plot the first 10 components since they are created in order of increasing variation explained, by the 10th principal component the amount of variation explained is less that .006% of the total variation present in the data.  
-Exploring any more components is not worth the computational resources.
-  
-```{r Scree Plot}
-ggplot(data = PCA_10,aes(x=1:10,y= `Proportion of Variance`,label = `Proportion of Variance`))+
-  geom_point()+
-  geom_line()+
-  geom_text(hjust =0.5,vjust=1.4,size=3)+
-  scale_x_continuous(n.breaks =10)+
-  xlab("Principal Component")+
-  ylab("Cumilative Variance Proportion")+
-  ggtitle("Scree Plot of the first 10 Principal Components")+
-  geom_vline(xintercept = 4,linetype="dotted")
-```
-  
-We find the drop off at the 4the component implying that we should take the first 4 components.  
-
-Upon performing principal component analysis we see that using the first 4 Principal Components we retain 98.2% of the variation(Information) present in the data.  
-This is a massive reduction from the 531 variables we had originally.  
-Thus, we will be using the first 4 principle components to represent the data.  
-
-```{r Scores from Predict}
-# Getting the scores using predict for validation
-test_component_scores = predict(Spectra_PCA)
-head(test_component_scores[,1:4])
-```
-
-```{r Scores First Principles}
-S =cov(scale(Spectra_Data_subset))
-eig = eigen(S)
-e_vec = eig$vectors
-scores <- as.matrix(scale(Spectra_Data_subset,center=T))%*%e_vec
-scores[1:6,1:4]
-```
-
-We see that some of the scores have the opposite direction but equal magnitude when compared to the predicted scores.  
-This is because the eigen decomposition in R is not always correct. This is mentioned clearly in the help page for the function eigen()  
 
 
 ```{r}
-ggplot(data = data.frame(scores),aes(x=X1,y=X2))+geom_point()+ggtitle("PC1 vs PC2")+geom_vline(xintercept = -37.5,linetype="dotted",col="blue",lwd=1)+geom_hline(yintercept = -25,linetype="dotted",col="red",lwd=1)
-```
+#I am running first iteration outside to create data frame for T,W,Q,P and appending them.
+#From second to 6th iteration I am running it in loop.
+#Training the model to get coefficient
+X <- dataPCR_train[,2:532]
+Y <- dataPCR_train[,1:1]
+# SVD (x^t * Y)
+S <- t(as.matrix(X)) %*% as.matrix(Y)
+SVD <- svd(S)
+#First vector from U and V respectively, but both have one columns only
+w <- SVD$u
+q <- SVD$v
+t <- as.matrix(X) %*% as.matrix(w)
+u <- as.matrix(Y) %*% as.matrix(q)
+abs_t <- t(as.matrix(t)) %*% as.matrix(t)
+t <- t/(sqrt(abs_t[1,1]))
+En <- X
+Fn <- Y
+p <- t(as.matrix(En))%*% t
+q <- t(as.matrix(Fn))%*% t
+En <- En - t %*% t(p)
+Fn <- Fn - t %*% t(q)
+T <- t
+W <- w
+Q <- q
+P <- p
+#Second iteration to sixth component taking previous  as reference
+for (i in 2:6) {
+  X <- En
+  Y <- Fn
+  S <- t(as.matrix(X)) %*% as.matrix(Y)
+  SVD <- svd(S)
+  w <- SVD$u
+  q <- SVD$v
+  t <- as.matrix(X) %*% as.matrix(w)
+  u <- as.matrix(Y) %*% as.matrix(q)
+  abs_t <- t(as.matrix(t)) %*% as.matrix(t)
+  t <- as.matrix(t) / (sqrt(abs_t[1,1]))
+  En <- X
+  Fn <- Y
+  p <- t(as.matrix(En))%*% t
+  q <- t(as.matrix(Fn))%*% t
+  En <- En - as.matrix(t) %*% t(p)
+  Fn <- Fn - as.matrix(t) %*% t(q)
+  T <- cbind(T,t)
+  W <- cbind(W,w)
+  Q <- cbind(Q,q)
+  P <- cbind(P,p)
   
-By plotting PC1 vs PC2 scores we can see a structure emerging. It seems as though the data gets divides into 2 clusters:  
-Cluster 1 with a PC1 score >=-37.5 and PC2 score >=-25  
-Cluster 2 with a PC1 score <=-37.5 and PC2 score <=-25  
-
-### PLSR
-
-```{r}
-# Manipulating data to get alpha s1 casein and Spectra Data in the same data frame
-Data_plsr <- Data_sub[,c(9,52:582)]
-
-#Splitting data into test and train
-test_index <- createDataPartition(Data_plsr$alpha_s1_casein,times = 1,p=0.33,list = F)
-train_data <- Data_plsr[-test_index,]
-test_data  <- Data_plsr[test_index,]
-```
-
-
-```{r}
-# Fitting the model
-pls_fit <- plsr(alpha_s1_casein~.,data=train_data,scale=T,validation = "CV")
-validationplot (pls_fit , val.type = "RMSE",legendpos="topright",main="RMSEP Plot for alpha s1 Casein")
-```
-  
-This plot shows that the RMSEP value decreases and then increases over the number of components,implying that the optimal number of components is low   
-A closer look at the plot allows us to obtain the optimum number of components  
-```{r}
-validationplot (pls_fit , val.type = "RMSE",legendpos="topright",main="RMSEP Plot for alpha s1 Casein",xlim = c(0,10),ylim=c(1.5,3))+abline(v=4,lty=2)
-```
-The optimum number of clusters for us is 4  
-we can confirm this decision by cumulative variation captured by the first 10 components  
-```{r}
-cumsum(explvar(pls_fit)[1:10])
-```
-  
-By component 4 we have already captured approximately 98% of our variance
-  
-```{r}
- plot(pls_fit, ncomp = 4, asp = 1, line = TRUE,main="Cross validated predictions for Spectra Data")
-```
-  
-This plot shows the cross-validated predicted values using 4 components against measure values. Since the points are following the target line we can confirm that using 4 components is sufficient for our data
-  
-##### Prediction
-
-```{r Predicting}
-# Predicting using our model on test data
-alpha_casein_predicted<-predict(pls_fit, ncomp = 4, newdata = test_data)
-alpha_casein_predicted %>% head()
-```
-
-```{r}
-ggplot(data = data.frame(alpha_casein_predicted),aes(x=1:length(alpha_s1_casein.4.comps),y=alpha_s1_casein.4.comps,color="Predicted"))+geom_line()+geom_point(aes(x=1:length(alpha_s1_casein.4.comps),y=test_data$alpha_s1_casein,color="Observed"))+theme_gray()+xlab("Test Observation Index")+ylab("Alpha s1 casein values")+ggtitle("Alpha casein prediction using PLSR")
-```
-  
-The predicted values seem to follow the test values quite closely.
-  
-We use RSMEP to evaluate it's performance
-  
-```{r}
-RMSEP_comparison<-data.frame(x1<-(RMSEP(pls_fit)$val)[seq(2,20,2)],x2<-(RMSEP(pls_fit,newdata = test_data)$val)[seq(2,20,2)])
-names(RMSEP_comparison)<-c("Cross validated estimate","test RMSEP")
-RMSEP_comparison[4,]
-```
-
-Since the test value is close to the estimated value indicating that our prediction was a good one.
-  
-```{r}
-pls_predictions <-predict(pls_fit,test_data)
-pls_predictions<-matrix(pls_predictions,nrow = nrow(test_data),ncol = 179,byrow = FALSE)
-pls_predictions<-as.data.frame(pls_predictions)
-paste("RMSE for predictions:",
-sqrt(mean((pls_predictions$V4 - test_data$alpha_s1_casein)^2)))
-```
-  
-### PLSR without pls package
-
-```{r}
-#X = Spectra_Data_subset
-#Y = matrix(data = Data_sub$alpha_s1_casein,nrow = 303,ncol = 1,byrow = T)
-
-#Splitting data into test and train
-test_index <- createDataPartition(Data_plsr$alpha_s1_casein,times = 1,p=0.33,list = FALSE)
-X <- as.matrix(Data_plsr[-test_index,2:ncol(Data_plsr)])
-Y  <- Data_plsr[-test_index,1]
-Y<-matrix(Y,nrow = 200,ncol = 1,byrow = TRUE)
-
-W <- list()
-T_list <- list()
-P <- list()
-Q <-list()
-E<-list()
-F_list<-list()
-
-
-En = as.matrix(X)
-Fn = as.matrix(Y)
-
-for(i in 1:4)
-{
-S = t(En)%*%Fn
-#calculating svd and seperating the first left and right eigen vectors
-w = svd(S)$u
-q = svd(S)$v
-
-Tn = En%*%w
-u = Fn%*%q
-# Normalizing scores
-Tn = c(Tn/(sqrt((t(Tn)%*%Tn)[1,1])))
-
-# Regressing over the scores to obtain remaining unexplained variation
-p = t(En)%*%Tn
-q = t(Fn)%*%Tn
-
-En = En-(Tn%*%t(p))
-Fn = Fn-(Tn%*%t(q))
-
-
-T_list<-cbind(T_list,Tn)
-P<-cbind(P,p)
-Q<-cbind(Q,q)
-W<-cbind(W,w)
 }
-
-# Converting columns of matrices to doubles
-W<-as.matrix(W)
-W = apply(W,2,as.numeric)
-
-T_list<-as.matrix(T_list)
-T_list = apply(T_list,2,as.numeric)
-
-P<-as.matrix(P)
-P = apply(P,2,as.numeric)
-
-Q<-as.matrix(Q)
-Q = apply(Q,2,as.numeric)
-
-R = as.matrix(W) %*% solve((t(as.matrix(P))%*%as.matrix(W)))
-# Obtaining are coefficients of regression
-B = R%*%(Q)
+R= as.matrix(W) %*% solve(t(as.matrix(P)) %*% as.matrix(W))
+#Calculated the required Coefficients
+B= R %*% t(Q)
+Pred_Y = as.matrix(X) %*% as.matrix(B)
+#Mean square error for showing accuracy
+sqrt(mean((Pred_Y - Y)^2)) 
+summary(Pred_Y)
+summary(Y)
 ```
 
-```{r Manual plsr Prediction}
-
-X_test<- as.matrix(Data_plsr[test_index,2:ncol(Data_plsr)])
-Y_test  <- Data_plsr[test_index,1]
-
-# predicting using obtained coefficients and Test data
-prediction_plsr <- as.matrix(X_test)%*%as.matrix(B)
-paste("RMSE for predictions",sqrt(mean((prediction_plsr - Y_test)^2)))
-```
-  
-When comparing RMSE obtained by using pls package(1.81289) , we can see that our model performed worse than it.
-  
 ```{r}
-ggplot(data = data.frame(prediction_plsr),aes(x=1:length(prediction_plsr),y=prediction_plsr,color="Predicted"))+geom_line()+geom_point(aes(x=1:length(prediction_plsr),y=Y_test,color="Observed"))+xlab("Index")+ylab("alpha s1 casein")+ggtitle("Alpha s1 casein prediction using plsr [wihtout pls package]")
+#Prediction for test data
+Predicted_test_alpha = as.matrix(dataPCR_test[,2:532]) %*% B 
+sqrt(mean((Predicted_test_alpha - dataPCR_test[,1:1])^2))
+plot(Predicted_test_alpha, type="l",lwd=3, ) #Predicted value
+points(dataPCR_test[,1:1], col='red') #Actual data 
+grid (10,10, lty = 6, col = "cornsilk2")
+summary(Predicted_test_alpha)
+summary(dataPCR_test[,1:1])
 ```
-  
-Although our predictions are generally speaking good, but in comparison to our previous plsr model it fall behind slightly.
-  
+As we can see the minimum and maximum values are in range and they match.  
+In the plot we can see that the lines match and cover most of the actual data, which shows pur prediction was close.
